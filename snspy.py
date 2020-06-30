@@ -11,8 +11,8 @@ Python client SDK for SNS API using OAuth 2. Require Python 2.6/2.7.
 try:
     from cStringIO import StringIO
 except ImportError:
-    from StringIO import StringIO
-
+    from io import StringIO
+from urllib.parse import urlparse
 import time
 import json
 
@@ -21,8 +21,8 @@ import hashlib
 import base64
 
 import urllib
-import urllib2
-import urlparse
+import urllib.request,urllib.error
+
 import gzip
 
 import logging
@@ -60,7 +60,7 @@ class JsonDict(dict):
         self[attr] = value
 
 
-class APIError(StandardError):
+class APIError(Exception):
     '''
     raise APIError if receiving json message indicating failure.
     '''
@@ -68,7 +68,7 @@ class APIError(StandardError):
         self.error_code = error_code
         self.error = error
         self.request = request
-        StandardError.__init__(self, error)
+        Exception.__init__(self, error)
 
     def __str__(self):
         return 'APIError: %s: %s, request: %s' % (self.error_code, self.error, self.request)
@@ -97,7 +97,7 @@ def _encode_params(**kw):
     'a=%E4%B8%AD%E6%96%87&b=A&b=B&b=123'
     '''
     def _encode(L, k, v):
-        if isinstance(v, unicode):
+        if isinstance(v, str):
             L.append('%s=%s' % (k, urllib.quote(v.encode('utf-8'))))
         elif isinstance(v, str):
             L.append('%s=%s' % (k, urllib.quote(v)))
@@ -128,7 +128,7 @@ def _encode_multipart(**kw):
             data.append(content)
         else:
             data.append('Content-Disposition: form-data; name="%s"\r\n' % k)
-            data.append(v.encode('utf-8') if isinstance(v, unicode) else v)
+            data.append(v.encode('utf-8') if isinstance(v, str) else v)
     data.append('--%s--\r\n' % boundary)
     return '\r\n'.join(data), boundary
 
@@ -179,7 +179,7 @@ def _http(method, url, headers=None, **kw):
     http_url = '%s?%s' % (url, params) if method == _HTTP_GET else url
     http_body = None if method == 'GET' else params
     logging.error('%s: %s' % (method, http_url))
-    req = urllib2.Request(http_url, data=http_body)
+    req = urllib.request.Request(http_url, data=http_body)
     req.add_header('Accept-Encoding', 'gzip')
     if headers:
         for k, v in headers.iteritems():
@@ -187,7 +187,7 @@ def _http(method, url, headers=None, **kw):
     if boundary:
         req.add_header('Content-Type', 'multipart/form-data; boundary=%s' % boundary)
     try:
-        resp = urllib2.urlopen(req, timeout=5)
+        resp = urllib.request.urlopen(req, timeout=5)
         return _read_http_body(resp)
     finally:
         pass
@@ -201,7 +201,7 @@ class SNSMixin(object):
         self._redirect_uri = redirect_uri
 
     def _prepare_api(self, method, path, access_token, **kw):
-        raise StandardError('Subclass must implement \'_prepare_api\' method.')
+        raise Exception('Subclass must implement \'_prepare_api\' method.')
 
     def on_http_error(self, e):
         try:
@@ -399,7 +399,7 @@ class APIClient(object):
         logging.debug('Call API: %s: %s' % (method, the_url))
         try:
             resp = _http(method, the_url, headers, **params)
-        except urllib2.HTTPError, e:
+        except urllib.error.HTTPError as e:
             return self._mixin.on_http_error(e)
         r = _parse_json(resp)
         if hasattr(r, 'error_code'):
